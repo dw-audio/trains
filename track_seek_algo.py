@@ -5,28 +5,30 @@ Created on Thu Jun 19 12:42:37 2025
 @author: Dan
 """
 
-runs = {"A": ["j1.left", "j2.right"],
-        "B": ["j1.right", "j2.root"],
-        "C": ["j1.root", "j2.left"]}
+# runs = {"A": ["j1.left", "j2.right"],
+#         "B": ["j1.right", "j2.root"],
+#         "C": ["j1.root", "j2.left"]}
 
-# find all the junctions mentioned
-junctionNames = set()
-for k, v in runs.items():  # for each run
-    for end in v:  # for each connection termination
-        currentJunctionName = end.split('.')[0]
-        if currentJunctionName not in junctionNames:
-            # make a junction object with random coordinates
-            pass
-        else:
-            junctionNames.add(currentJunctionName)
-    # now that all the junctions associated with the current run have been created,
-    # make a run object from the current run
-    startJunctionName = v[0].split('.')[0]
-    startJunctionNode = v[0].split('.')[1]
-    endJunctionName = v[1].split('.')[0]
-    endJunctionNode = v[1].split('.')[1]
-    # runs.append(Run(Track.startJunctionName, Track.endJunctionName)) # or the junction obj itself?
-    # need to make a way of ID'ing junctions by name, maybe Track.junctions is a dict.
+
+# ported to splines.py
+# # find all the junctions mentioned
+# junctionNames = set()
+# for k, v in runs.items():  # for each run
+#     for end in v:  # for each connection termination
+#         currentJunctionName = end.split('.')[0]
+#         if currentJunctionName not in junctionNames:
+#             # make a junction object with random coordinates
+#             pass
+#         else:
+#             junctionNames.add(currentJunctionName)
+#     # now that all the junctions associated with the current run have been created,
+#     # make a run object from the current run
+#     startJunctionName = v[0].split('.')[0]
+#     startJunctionNode = v[0].split('.')[1]
+#     endJunctionName = v[1].split('.')[0]
+#     endJunctionNode = v[1].split('.')[1]
+#     # runs.append(Run(Track.startJunctionName, Track.endJunctionName)) # or the junction obj itself?
+#     # need to make a way of ID'ing junctions by name, maybe Track.junctions is a dict.
 
 
 # after this function we should have a Track which has all connections made.

@@ -32,7 +32,7 @@ def rotation_matrix(theta):
     """Returns a 2D rotation matrix for angle theta (in degrees)."""
     return np.array([
         [np.cos(np.deg2rad(theta)), -np.sin(np.deg2rad(theta))],
-        [np.sin(np.deg2rad(theta)),  np.cos(np.deg2rad(theta))]
+        [np.sin(np.deg2rad(theta)), np.cos(np.deg2rad(theta))]
     ])
 
 
@@ -48,44 +48,73 @@ def bezier_cubic(P0, P1, P2, P3, n=100):
 class Track():
     # a track contains some junctions and connections
 
-    def __init__(self, junctionRules):
-        # from the map of connections, connect all the junctions
-        self.junctions = []
-        self.runs = []
-        junctionNames, runs = junctionRules.items()
-        for name in junctionNames:
-            # put a random junction down
-            self.junctions.append(Junction(np.random.randn(2)*5, np.random.rand()*360, name))
+    def __init__(self, config):
+        # from the config, connect all the junctions
+        # config has the form of a dictionary with entries
+        # {"name of run": ["<junction name>.<left|right|root>",
+        #                  "<junction name>.<left|right|root>"]}
 
-        for
-        # make all the runs from this junction
-        for rule in junctionName
-        self.runs.append()
+        self.junctions = {}  # keys = names, values = junction objects
+        self.runs = []
+        self.runScale = 0.5
+        for k, v in config.items():  # for each run
+            for end in v:  # for each connection termination
+                currentJunctionName = end.split('.')[0]
+                if currentJunctionName not in self.junctions.keys():
+                    self.junctions[currentJunctionName] = Junction(np.random.randn(2) * 2,
+                                                                   np.random.rand() * 360,
+                                                                   currentJunctionName)
+                else:
+                    pass
+            # now that all the junctions associated with the current run have been created,
+            # make a run object from the current run
+            startJunctionName = v[0].split('.')[0]
+            startJunctionNode = v[0].split('.')[1]
+            endJunctionName = v[1].split('.')[0]
+            endJunctionNode = v[1].split('.')[1]
+            self.runs.append(Run(self.junctions[startJunctionName].endpoints[startJunctionNode],
+                                 self.junctions[endJunctionName].endpoints[endJunctionNode],
+                                 self.junctions[startJunctionName].gradients[startJunctionNode],
+                                 self.junctions[endJunctionName].gradients[endJunctionNode],
+                                 k,
+                                 self.runScale))
 
     def draw(self):
-        for j in self.junctions:
+        for j in self.junctions.values():
             j.draw()
             plt.axis('equal')
+        for r in self.runs:
+            r.draw()
+
+    def rescale(self, scale):
+        for r in self.runs:
+            r.rescale(scale)
 
 
 class Run():
     # a Run has a start and end point and start and end gradients
     # a Run can also calculate its energy, and draw itself
-    def __init__(self, start, end, startGradient, endGradient):
+    def __init__(self, start, end, startGradient, endGradient, name="", scale=0.5):
         self.start = start
         self.end = end
         self.startGradient = startGradient
         self.endGradient = endGradient
-        self.scale = 0.5
+        self.scale = scale
         self.color = 'b'
+        self.name = name
 
     def draw(self):
         curve = bezier_cubic(self.start,
-                             self.start+self.startGradient*self.scale,
-                             self.end-self.endGradient*self.scale,
+                             self.start + self.startGradient * self.scale,
+                             self.end + self.endGradient * self.scale,
                              self.end)
 
         plt.plot(curve[:, 0], curve[:, 1], self.color)
+
+    def rescale(self, scale):
+        plt.cla()
+        self.scale = scale
+        self.draw()
 
 
 class Junction():
@@ -96,9 +125,9 @@ class Junction():
         Parameters
         ----------
         loc: np.array of float: [x,y]
-            location of root 
-        direction : scalar float in degrees 
-            direction that the midpoint of the junction points 
+            location of root
+        direction : scalar float in degrees
+            direction that the midpoint of the junction points
         """
         self.loc = loc
         self.direction = direction
@@ -106,48 +135,57 @@ class Junction():
         self.color = 'r'
         self.name = name
         self.flipped = 1  # or -1
+        self.endpoints = {}
+        self.gradients = {}
         self.get_points()
 
     def get_points(self):
         r = rotation_matrix(self.direction)
-        self.leftEndpoint = self.loc+np.array([self.flipped*-0.5, 1])@r
-        self.rightEndpoint = self.loc+np.array([self.flipped*0.5, 1])@r
-        self.startGradient = np.array([0, 0.707])@r
-        self.leftGradient = np.array([-0.5, 0.5])@r
-        self.rightGradient = np.array([0.5, 0.5])@r
+        self.leftEndpoint = self.loc + np.array([self.flipped * -0.5, 1]) @ r
+        self.rightEndpoint = self.loc + np.array([self.flipped * 0.5, 1]) @ r
+        self.startGradient = np.array([0, -0.707]) @ r  # note the start gradient is pointing away from the root
+        self.leftGradient = np.array([self.flipped * -0.5, 0.5]) @ r
+        self.rightGradient = np.array([self.flipped * 0.5, 0.5]) @ r
+        self.endpoints['left'] = self.leftEndpoint
+        self.endpoints['right'] = self.rightEndpoint
+        self.endpoints['root'] = self.loc
+        self.gradients['left'] = self.leftGradient
+        self.gradients['right'] = self.rightGradient
+        self.gradients['root'] = self.startGradient
 
     def swap(self):
-        self.flipped = -1*self.flipped
+        self.flipped = -1 * self.flipped
         self.get_points()
 
     def draw(self):
-        # plt.plot(*self.loc, 'kx')
-        # plt.plot(*self.leftEndpoint, 'bx')
-        # plt.plot(*self.rightEndpoint, 'rx')
 
         leftCurve = bezier_cubic(self.loc,
-                                 self.loc+self.startGradient*self.scale,
-                                 self.leftEndpoint-self.leftGradient*self.scale,
+                                 self.loc - self.startGradient * self.scale,  # note, bezier gradient rule for startGradient is reversed here to converge at the root
+                                 self.leftEndpoint - self.leftGradient * self.scale,
                                  self.leftEndpoint)
 
         rightCurve = bezier_cubic(self.loc,
-                                  self.loc+self.startGradient*self.scale,
-                                  self.rightEndpoint-self.rightGradient*self.scale,
+                                  self.loc - self.startGradient * self.scale,  # note, bezier gradient rule for startGradient is reversed here to converge at the root
+                                  self.rightEndpoint - self.rightGradient * self.scale,
                                   self.rightEndpoint)
 
         plt.plot(leftCurve[:, 0], leftCurve[:, 1], self.color)
-        plt.plot(rightCurve[:, 0], rightCurve[:, 1], self.color)
+        plt.plot(rightCurve[:, 0], rightCurve[:, 1], self.color, linestyle='--')
         plt.text(*self.loc, self.name)
 
 
 if __name__ == "__main__":
 
-    junctionRules = {
-        'j1': {'left': 'j2.right', 'right': 'j2.root'},
-        'j2': {'right': 'j1.root'}
-    }
+    config = {"A": ["j1.left", "j2.right"],
+              "B": ["j1.right", "j2.root"],
+              "C": ["j1.root", "j2.left"]}
 
-    T = Track(junctionRules)
+    # two reversing loops
+    # config = {"A": ["j1.left", "j1.right"],
+    #           "B": ["j2.root", "j1.root"],
+    #           "C": ["j2.right", "j2.left"]}
+
+    T = Track(config)
     T.draw()
 
     # plt.close('all')
