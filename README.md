@@ -5,7 +5,7 @@ My definition of a *good* toy train layout is one where:
 
 "A train starting at any point on the track, facing in either direction, can make a journey where it travels on all sections of track in both directions, and returns to its starting point, facing the same direction it started."
 
-This necessitates that the track has sets of points that let the train take different paths (otherwise it would not be able to turn around). 
+This necessitates that the track has sets of points that let the train take different paths (otherwise it would not be able to turn around). In general a track must have an even number of sets of points to avoid dead ends. 
 
 The simplest "good" layout is a straight piece of track with a reversing loop at each end: 
 ![image](https://github.com/user-attachments/assets/a65c3a94-f918-45e5-ae47-74a99135e427)
