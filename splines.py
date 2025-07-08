@@ -102,20 +102,22 @@ class Run():
         self.scale = scale
         self.color = 'b'
         self.name = name
-
+        self.cost = 0
+	
     def draw(self):
-        curve = bezier_cubic(self.start,
-                             self.start + self.startGradient * self.scale,
-                             self.end + self.endGradient * self.scale,
-                             self.end)
-
-        plt.plot(curve[:, 0], curve[:, 1], self.color)
+        self.calculateCurve()
+        plt.plot(self.curve[:, 0], self.curve[:, 1], self.color)
 
     def rescale(self, scale):
         plt.cla()
         self.scale = scale
         self.draw()
 
+    def calculateCurve(self):
+        self.curve = bezier_cubic(self.start,
+                                  self.start + self.startGradient * self.scale,
+                                  self.end + self.endGradient * self.scale,
+                                  self.end)
 
 class Junction():
     # a junction has coordinates that define its root
@@ -157,20 +159,21 @@ class Junction():
         self.flipped = -1 * self.flipped
         self.get_points()
 
-    def draw(self):
-
-        leftCurve = bezier_cubic(self.loc,
+    def calculateCurves(self):
+        self.leftCurve = bezier_cubic(self.loc,
                                  self.loc - self.startGradient * self.scale,  # note, bezier gradient rule for startGradient is reversed here to converge at the root
                                  self.leftEndpoint - self.leftGradient * self.scale,
                                  self.leftEndpoint)
 
-        rightCurve = bezier_cubic(self.loc,
+        self.rightCurve = bezier_cubic(self.loc,
                                   self.loc - self.startGradient * self.scale,  # note, bezier gradient rule for startGradient is reversed here to converge at the root
                                   self.rightEndpoint - self.rightGradient * self.scale,
                                   self.rightEndpoint)
 
-        plt.plot(leftCurve[:, 0], leftCurve[:, 1], self.color)
-        plt.plot(rightCurve[:, 0], rightCurve[:, 1], self.color, linestyle='--')
+    def draw(self):
+        self.calculateCurves()
+        plt.plot(self.leftCurve[:, 0], self.leftCurve[:, 1], self.color)
+        plt.plot(self.rightCurve[:, 0], self.rightCurve[:, 1], self.color, linestyle='--')
         plt.text(*self.loc, self.name)
 
 
@@ -184,9 +187,10 @@ if __name__ == "__main__":
     # config = {"A": ["j1.left", "j1.right"],
     #           "B": ["j2.root", "j1.root"],
     #           "C": ["j2.right", "j2.left"]}
-
+   
     T = Track(config)
     T.draw()
+    plt.show()
 
     # plt.close('all')
     # j = Junction([1, 0], 45, 'j1')
