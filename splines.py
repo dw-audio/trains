@@ -54,18 +54,21 @@ class Track():
             startJunctionNode = v[0].split('.')[1]
             endJunctionName = v[1].split('.')[0]
             endJunctionNode = v[1].split('.')[1]
-            self.runs.append(Run(self.junctions[startJunctionName].endpoints[startJunctionNode],
-                                 self.junctions[endJunctionName].endpoints[endJunctionNode],
-                                 self.junctions[startJunctionName].gradients[startJunctionNode],
-                                 self.junctions[endJunctionName].gradients[endJunctionNode],
-                                 k,
-                                 self.runScale))
+            self.runs.append(Run(
+                start_junction=self.junctions[startJunctionName],
+                start_port=startJunctionNode,
+                end_junction=self.junctions[endJunctionName],
+                end_port=endJunctionNode,
+                name=k,
+                scale=self.runScale
+            ))
 
     def draw(self):
         fig, ax = plt.subplots()
         self.fig = fig
         self.ax = ax
         self.dragged_junction = None
+        self.angled_junction = None
         for j in self.junctions.values():
             j.draw(ax)
 
@@ -75,14 +78,20 @@ class Track():
         fig.canvas.mpl_connect('button_press_event', self.on_press)
         fig.canvas.mpl_connect('motion_notify_event', self.on_motion)
         fig.canvas.mpl_connect('button_release_event', self.on_release)
-        plt.axis('equal')
-        plt.show()
+        fig.canvas.mpl_connect('scroll_event', self.on_scroll)
+
+        ax.set_title('Blue circles = move, Black circles=rotate \n Pink Squares=flip junction, scroll=tighten/loosen curves')
+
+        ax.axis('equal')
+        fig.show()
 
     def redraw(self):
         if not hasattr(self, 'ax'):
             return  # Cannot redraw before draw() is called
 
         self.ax.clear()  # Clear previous visuals
+
+        self.ax.set_title('Blue circles = move, Black circles=rotate \n Pink Squares=flip junction, scroll=tighten/loosen curves')
 
         # Redraw all junctions and connections
         for j in self.junctions.values():
@@ -99,55 +108,97 @@ class Track():
         if event.inaxes != self.ax:
             return
         for j in self.junctions.values():
+            # Check for translation nub
             if j.nub_artist.contains(event)[0]:
                 self.dragged_junction = j
                 self.offset = j.loc - np.array([event.xdata, event.ydata])
                 return
 
+            # Check for rotation nub
+            elif j.rot_artist.contains(event)[0]:
+                self.angled_junction = j
+                self.center = j.loc
+                vec = np.array([event.xdata, event.ydata]) - self.center
+                self.initial_angle = np.arctan2(vec[1], vec[0])
+                self.initial_direction = j.direction
+                return
+
+            elif j.swap_artist.contains(event)[0]:
+                j.swap()
+                self.redraw()
+                self.fig.canvas.draw_idle()
+
     def on_motion(self, event):
-        if not self.dragged_junction or event.inaxes != self.ax:
+        if event.inaxes != self.ax:
             return
-        new_pos = np.array([event.xdata, event.ydata]) + self.offset
-        self.dragged_junction.update_position(new_pos)
-        # update all the curves
-        self.redraw()
-        self.fig.canvas.draw_idle()
+
+        if self.dragged_junction:
+            # Handle dragging movement
+            new_pos = np.array([event.xdata, event.ydata]) + self.offset
+            self.dragged_junction.update_position(new_pos)
+            self.redraw()
+            self.fig.canvas.draw_idle()
+
+        elif self.angled_junction:
+            # Handle rotation
+            vec = np.array([event.xdata, event.ydata]) - self.center
+            current_angle = np.arctan2(vec[1], vec[0])
+            delta_angle = np.rad2deg(self.initial_angle - current_angle)
+            self.angled_junction.update_rotation(self.initial_direction + delta_angle)
+            self.redraw()
+            self.fig.canvas.draw_idle()
 
     def on_release(self, event):
         self.dragged_junction = None
+        self.angled_junction = None
+
+    def on_scroll(self, event):
+        scale_step = 0.1
+        if event.step > 0:
+            self.runScale *= 1 + scale_step
+        else:
+            self.runScale *= 1 - scale_step
+        self.rescale(self.runScale)
+        self.redraw()
+        self.fig.canvas.draw_idle()
 
     def rescale(self, scale):
+        self.runScale = scale
         for r in self.runs:
-            r.rescale(scale)
+            r.rescale(scale, self.ax)
 
 
 class Run():
     # a Run has a start and end point and start and end gradients
     # a Run can also calculate its energy, and draw itself
-    def __init__(self, start, end, startGradient, endGradient, name="", scale=0.5):
-        self.start = start
-        self.end = end
-        self.startGradient = startGradient
-        self.endGradient = endGradient
+    def __init__(self, start_junction, start_port, end_junction, end_port, name="", scale=0.5):
+        self.start_junction = start_junction
+        self.start_port = start_port
+        self.end_junction = end_junction
+        self.end_port = end_port
         self.scale = scale
-        self.color = 'b'
         self.name = name
+        self.color = 'b'
         self.cost = 0
 
     def draw(self, ax):
         self.calculateCurve()
         ax.plot(self.curve[:, 0], self.curve[:, 1], self.color)
 
-    def rescale(self, scale):
-        plt.cla()
+    def rescale(self, scale, ax):
         self.scale = scale
-        self.draw()
+        self.draw(ax)
 
     def calculateCurve(self):
-        self.curve = bezier_cubic(self.start,
-                                  self.start + self.startGradient * self.scale,
-                                  self.end + self.endGradient * self.scale,
-                                  self.end)
+        start = self.start_junction.endpoints[self.start_port]
+        end = self.end_junction.endpoints[self.end_port]
+        startGradient = self.start_junction.gradients[self.start_port]
+        endGradient = self.end_junction.gradients[self.end_port]
+
+        self.curve = bezier_cubic(start,
+                                  start + startGradient * self.scale,
+                                  end + endGradient * self.scale,
+                                  end)
 
 
 class Junction():
@@ -167,19 +218,21 @@ class Junction():
         self.scale = 0.5
         self.color = 'r'
         self.name = name
-        self.flipped = 1  # or -1
+        self.swapped = 1  # or -1
         self.endpoints = {}
         self.gradients = {}
         self.get_points()
         self.nub_artist = None  # Will be set during draw
+        self.rot_artist = None
+        self.swap_artist = None
 
     def get_points(self):
         self.r = rotation_matrix(self.direction)
-        self.leftEndpoint = self.loc + np.array([self.flipped * -0.5, 1]) @ self.r
-        self.rightEndpoint = self.loc + np.array([self.flipped * 0.5, 1]) @ self.r
+        self.leftEndpoint = self.loc + np.array([self.swapped * -0.5, 1]) @ self.r
+        self.rightEndpoint = self.loc + np.array([self.swapped * 0.5, 1]) @ self.r
         self.startGradient = np.array([0, -0.707]) @ self.r  # note the start gradient is pointing away from the root
-        self.leftGradient = np.array([self.flipped * -0.5, 0.5]) @ self.r
-        self.rightGradient = np.array([self.flipped * 0.5, 0.5]) @ self.r
+        self.leftGradient = np.array([self.swapped * -0.5, 0.5]) @ self.r
+        self.rightGradient = np.array([self.swapped * 0.5, 0.5]) @ self.r
         self.endpoints['left'] = self.leftEndpoint
         self.endpoints['right'] = self.rightEndpoint
         self.endpoints['root'] = self.loc
@@ -194,18 +247,24 @@ class Junction():
             self.nub_artist.set_data(new_pos[0] + dx, new_pos[1] + dy)
         self.get_points()
 
+    def update_rotation(self, new_direction):
+        self.direction = new_direction % 360
+        self.get_points()
+
     def swap(self):
-        self.flipped = -1 * self.flipped
+        self.swapped = -1 * self.swapped
         self.get_points()
 
     def calculateCurves(self):
         self.leftCurve = bezier_cubic(self.loc,
-                                      self.loc - self.startGradient * self.scale,  # note, bezier gradient rule for startGradient is reversed here to converge at the root
+                                      # note, bezier gradient rule for startGradient is reversed here to converge at the root
+                                      self.loc - self.startGradient * self.scale,
                                       self.leftEndpoint - self.leftGradient * self.scale,
                                       self.leftEndpoint)
 
         self.rightCurve = bezier_cubic(self.loc,
-                                       self.loc - self.startGradient * self.scale,  # note, bezier gradient rule for startGradient is reversed here to converge at the root
+                                       # note, bezier gradient rule for startGradient is reversed here to converge at the root
+                                       self.loc - self.startGradient * self.scale,
                                        self.rightEndpoint - self.rightGradient * self.scale,
                                        self.rightEndpoint)
 
@@ -217,21 +276,33 @@ class Junction():
         # plot nub
         x, y = self.loc
         dx, dy = [0, 0.5]@self.r
-        self.nub_artist = ax.plot(x+dx, y+dy, 'o', markersize=10, picker=True)[0]
+        self.nub_artist = ax.plot(x+dx, y+dy, 'bo', markersize=10, picker=True)[0]
+        self.rot_artist = ax.plot(x+1.3*dx, y+1.3*dy, 'ko', markersize=7, picker=True)[0]
+        self.swap_artist = ax.plot(x+0.7*dx, y+0.7*dy, 'ms', markersize=7, picker=True)[0]
         ax.text(*self.loc, self.name)
 
 
 if __name__ == "__main__":
 
     plt.close('all')
+
+    # gets stuck
     config = {"A": ["j1.left", "j2.right"],
               "B": ["j1.right", "j2.root"],
               "C": ["j1.root", "j2.left"]}
 
-    # two reversing loops
+    # two reversing loops - works
     # config = {"A": ["j1.left", "j1.right"],
     #           "B": ["j2.root", "j1.root"],
     #           "C": ["j2.right", "j2.left"]}
+
+    # gets stuck [j3 root, j2 left, j2 root, j1 right, j1 root, j1 root, j3 left, j3 root]
+    config = {"A": ["j1.left", "j2.right"],
+              "B": ["j1.right", "j2.root"],
+              "C": ["j1.root", "j3.left"],
+              "D": ["j2.left", "j3.root"],
+              "E": ["j3.right", "j4.root"],
+              "F": ["j4.left", "j4.right"]}
 
     T = Track(config)
     T.draw()
