@@ -7,6 +7,7 @@ Created on Wed Jun 18 19:51:16 2025
 
 import numpy as np
 import matplotlib.pyplot as plt
+import random
 
 
 def rotation_matrix(theta):
@@ -167,6 +168,26 @@ class Track():
         for r in self.runs:
             r.rescale(scale, self.ax)
 
+    def traverse(self):
+        """Traverse the track to see if we get stuck in a loop"""
+        # 10 Start at the root of a random junction in the Track
+        initialJunctionName = random.choice(list(self.junctions.keys()))
+
+        # 20 We always have a decision in the first case:
+        #      Take the left path and remember that we have already exited from this junction once
+        # 50 Use the runs structure to follow the track to the next junction node
+        # Did we enter at a root node?
+        #   YES - we have a decision. Increment the decision counter
+        #       if the decision counter is bigger than the number of junctions, exit, else continue
+        #       Have we been to this node before?
+        #         YES - Therefore we have previously exited via the left node, take the right path, goto 50
+        #         NO - Take the left path, goto 50
+        #   NO - Have we been here before?
+        #       YES - What was the decision counter last time we were here?
+        #           SAME AS LAST TIME? then there is a mandatory loop - exit
+        #           not the same? save decision counter here.
+        #       NO - goto 50
+
 
 class Run():
     # a Run has a start and end point and start and end gradients
@@ -199,6 +220,9 @@ class Run():
                                   start + startGradient * self.scale,
                                   end + endGradient * self.scale,
                                   end)
+
+    def __repr__(self):
+        return f"{self.start_junction.name}.{self.start_port} --> {self.end_junction.name}.{self.end_port}"
 
 
 class Junction():
@@ -281,6 +305,9 @@ class Junction():
         self.swap_artist = ax.plot(x+0.7*dx, y+0.7*dy, 'ms', markersize=7, picker=True)[0]
         ax.text(*self.loc, self.name)
 
+    def __repr__(self):
+        return self.name
+
 
 if __name__ == "__main__":
 
@@ -306,3 +333,4 @@ if __name__ == "__main__":
 
     T = Track(config)
     T.draw()
+    print(T.runs)
