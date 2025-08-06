@@ -5,25 +5,6 @@ Created on Wed Jun 18 19:51:16 2025
 @author: Dan
 """
 
-
-# import matplotlib.pyplot as plt
-# import numpy as np
-# from scipy import interpolate
-
-
-# nodes = np.array([[1, 2], [6, 15], [10, 6], [10, 3], [3, 7]])
-
-# x = nodes[:, 0]
-# y = nodes[:, 1]
-
-# tck, u = interpolate.splprep([x, y], s=0)
-# xnew, ynew = interpolate.splev(np.linspace(0, 1, 100), tck, der=0)
-
-# plt.plot(x, y, 'o', xnew, ynew)
-# plt.legend(['data', 'spline'])
-# plt.axis([x.min() - 1, x.max() + 1, y.min() - 1, y.max() + 2])
-# plt.show()
-
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -57,6 +38,7 @@ class Track():
         self.junctions = {}  # keys = names, values = junction objects
         self.runs = []
         self.runScale = 0.5
+
         for k, v in config.items():  # for each run
             for end in v:  # for each connection termination
                 currentJunctionName = end.split('.')[0]
@@ -80,11 +62,59 @@ class Track():
                                  self.runScale))
 
     def draw(self):
+        fig, ax = plt.subplots()
+        self.fig = fig
+        self.ax = ax
+        self.dragged_junction = None
         for j in self.junctions.values():
-            j.draw()
-            plt.axis('equal')
+            j.draw(ax)
+
         for r in self.runs:
-            r.draw()
+            r.draw(ax)
+
+        fig.canvas.mpl_connect('button_press_event', self.on_press)
+        fig.canvas.mpl_connect('motion_notify_event', self.on_motion)
+        fig.canvas.mpl_connect('button_release_event', self.on_release)
+        plt.axis('equal')
+        plt.show()
+
+    def redraw(self):
+        if not hasattr(self, 'ax'):
+            return  # Cannot redraw before draw() is called
+
+        self.ax.clear()  # Clear previous visuals
+
+        # Redraw all junctions and connections
+        for j in self.junctions.values():
+            j.draw(self.ax)
+
+        for r in self.runs:
+            r.calculateCurve()
+            r.draw(self.ax)
+
+        self.ax.axis('equal')
+        self.fig.canvas.draw_idle()
+
+    def on_press(self, event):
+        if event.inaxes != self.ax:
+            return
+        for j in self.junctions.values():
+            if j.nub_artist.contains(event)[0]:
+                self.dragged_junction = j
+                self.offset = j.loc - np.array([event.xdata, event.ydata])
+                return
+
+    def on_motion(self, event):
+        if not self.dragged_junction or event.inaxes != self.ax:
+            return
+        new_pos = np.array([event.xdata, event.ydata]) + self.offset
+        self.dragged_junction.update_position(new_pos)
+        # update all the curves
+        self.redraw()
+        self.fig.canvas.draw_idle()
+
+    def on_release(self, event):
+        self.dragged_junction = None
 
     def rescale(self, scale):
         for r in self.runs:
@@ -103,10 +133,10 @@ class Run():
         self.color = 'b'
         self.name = name
         self.cost = 0
-	
-    def draw(self):
+
+    def draw(self, ax):
         self.calculateCurve()
-        plt.plot(self.curve[:, 0], self.curve[:, 1], self.color)
+        ax.plot(self.curve[:, 0], self.curve[:, 1], self.color)
 
     def rescale(self, scale):
         plt.cla()
@@ -118,6 +148,7 @@ class Run():
                                   self.start + self.startGradient * self.scale,
                                   self.end + self.endGradient * self.scale,
                                   self.end)
+
 
 class Junction():
     # a junction has coordinates that define its root
@@ -140,14 +171,15 @@ class Junction():
         self.endpoints = {}
         self.gradients = {}
         self.get_points()
+        self.nub_artist = None  # Will be set during draw
 
     def get_points(self):
-        r = rotation_matrix(self.direction)
-        self.leftEndpoint = self.loc + np.array([self.flipped * -0.5, 1]) @ r
-        self.rightEndpoint = self.loc + np.array([self.flipped * 0.5, 1]) @ r
-        self.startGradient = np.array([0, -0.707]) @ r  # note the start gradient is pointing away from the root
-        self.leftGradient = np.array([self.flipped * -0.5, 0.5]) @ r
-        self.rightGradient = np.array([self.flipped * 0.5, 0.5]) @ r
+        self.r = rotation_matrix(self.direction)
+        self.leftEndpoint = self.loc + np.array([self.flipped * -0.5, 1]) @ self.r
+        self.rightEndpoint = self.loc + np.array([self.flipped * 0.5, 1]) @ self.r
+        self.startGradient = np.array([0, -0.707]) @ self.r  # note the start gradient is pointing away from the root
+        self.leftGradient = np.array([self.flipped * -0.5, 0.5]) @ self.r
+        self.rightGradient = np.array([self.flipped * 0.5, 0.5]) @ self.r
         self.endpoints['left'] = self.leftEndpoint
         self.endpoints['right'] = self.rightEndpoint
         self.endpoints['root'] = self.loc
@@ -155,30 +187,43 @@ class Junction():
         self.gradients['right'] = self.rightGradient
         self.gradients['root'] = self.startGradient
 
+    def update_position(self, new_pos):
+        self.loc = new_pos
+        if self.nub_artist:
+            dx, dy = [0, 0.5]@self.r
+            self.nub_artist.set_data(new_pos[0] + dx, new_pos[1] + dy)
+        self.get_points()
+
     def swap(self):
         self.flipped = -1 * self.flipped
         self.get_points()
 
     def calculateCurves(self):
         self.leftCurve = bezier_cubic(self.loc,
-                                 self.loc - self.startGradient * self.scale,  # note, bezier gradient rule for startGradient is reversed here to converge at the root
-                                 self.leftEndpoint - self.leftGradient * self.scale,
-                                 self.leftEndpoint)
+                                      self.loc - self.startGradient * self.scale,  # note, bezier gradient rule for startGradient is reversed here to converge at the root
+                                      self.leftEndpoint - self.leftGradient * self.scale,
+                                      self.leftEndpoint)
 
         self.rightCurve = bezier_cubic(self.loc,
-                                  self.loc - self.startGradient * self.scale,  # note, bezier gradient rule for startGradient is reversed here to converge at the root
-                                  self.rightEndpoint - self.rightGradient * self.scale,
-                                  self.rightEndpoint)
+                                       self.loc - self.startGradient * self.scale,  # note, bezier gradient rule for startGradient is reversed here to converge at the root
+                                       self.rightEndpoint - self.rightGradient * self.scale,
+                                       self.rightEndpoint)
 
-    def draw(self):
+    def draw(self, ax):
         self.calculateCurves()
-        plt.plot(self.leftCurve[:, 0], self.leftCurve[:, 1], self.color)
-        plt.plot(self.rightCurve[:, 0], self.rightCurve[:, 1], self.color, linestyle='--')
-        plt.text(*self.loc, self.name)
+        ax.plot(self.leftCurve[:, 0], self.leftCurve[:, 1], self.color)
+        ax.plot(self.rightCurve[:, 0], self.rightCurve[:, 1], self.color, linestyle='--')
+
+        # plot nub
+        x, y = self.loc
+        dx, dy = [0, 0.5]@self.r
+        self.nub_artist = ax.plot(x+dx, y+dy, 'o', markersize=10, picker=True)[0]
+        ax.text(*self.loc, self.name)
 
 
 if __name__ == "__main__":
 
+    plt.close('all')
     config = {"A": ["j1.left", "j2.right"],
               "B": ["j1.right", "j2.root"],
               "C": ["j1.root", "j2.left"]}
@@ -187,18 +232,6 @@ if __name__ == "__main__":
     # config = {"A": ["j1.left", "j1.right"],
     #           "B": ["j2.root", "j1.root"],
     #           "C": ["j2.right", "j2.left"]}
-   
+
     T = Track(config)
     T.draw()
-    plt.show()
-
-    # plt.close('all')
-    # j = Junction([1, 0], 45, 'j1')
-    # j.draw()
-    # plt.axis('equal')
-    # k = Junction([-2, 1], 135, 'j2')
-    # k.draw()
-    # plt.axis('equal')
-
-    # c = Run(k.leftEndpoint, j.loc, k.leftGradient, j.startGradient)
-    # c.draw()
