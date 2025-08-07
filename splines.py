@@ -169,24 +169,98 @@ class Track():
             r.rescale(scale, self.ax)
 
     def traverse(self):
-        """Traverse the track to see if we get stuck in a loop"""
-        # 10 Start at the root of a random junction in the Track
-        initialJunctionName = random.choice(list(self.junctions.keys()))
+        """Traverse the track to see if we get stuck in a loop
 
-        # 20 We always have a decision in the first case:
-        #      Take the left path and remember that we have already exited from this junction once
-        # 50 Use the runs structure to follow the track to the next junction node
-        # Did we enter at a root node?
-        #   YES - we have a decision. Increment the decision counter
-        #       if the decision counter is bigger than the number of junctions, exit, else continue
-        #       Have we been to this node before?
-        #         YES - Therefore we have previously exited via the left node, take the right path, goto 50
-        #         NO - Take the left path, goto 50
-        #   NO - Have we been here before?
-        #       YES - What was the decision counter last time we were here?
-        #           SAME AS LAST TIME? then there is a mandatory loop - exit
-        #           not the same? save decision counter here.
-        #       NO - goto 50
+        There are always two phases to each iteration:
+            - 1. traverse from one end of a junction to another
+            - 2. traverse from a node of one junction to a node of another via a run
+
+        For 1, there are two options; starting at "left" or "right"
+        and ending up at "root", or starting at the root and making a decision.
+
+        For 2, there are no choices, the endpoint is governed
+        fully by the run structure
+
+
+        """
+        stuck = False
+        decisionCount = 0
+        decisionLog = {}  # storage for whether to go left or right at a junction
+        dCountLog = {}  # storage for decision count while entering
+        keepLooking = True
+
+        # 10 Start at the root of a random junction in the Track
+        currentJunctionName = random.choice(list(self.junctions.keys()))
+        currentNode = 'root'
+
+        while keepLooking:
+            print(f'Current position: {currentJunctionName}.{currentNode}')
+            # phase 1, go from one end of a junction to another
+            if currentNode == 'root':
+
+                # if we have turned left and right at all the junctions, then we are done
+                if set(decisionLog.keys()) == set(T.junctions):
+                    if np.all([v >= 2 for v in decisionLog.values()]):
+                        keepLooking = False
+                        continue
+
+                # determine whether to go left or right from the decision log
+                # if we have not travelled to this junction yet, go left (0)
+                decisionValue = decisionLog.get(currentJunctionName, 0)
+                if decisionValue == 0:
+                    print(f"I haven't been at {currentJunctionName} before, going left")
+                    currentNode = 'left'  # travel to the left outlet
+                    decisionCount += 1
+                    decisionLog[currentJunctionName] = 1
+                elif decisionValue == 1:
+                    print(f"I've turned left at {currentJunctionName} before, going right")
+                    currentNode = 'right'  # travel to the right outlet
+                    decisionCount += 1
+                    decisionLog[currentJunctionName] = 2
+                else:
+                    currentNode = random.choice(['left', 'right'])
+                    print(f"I've been to {currentJunctionName} twice before, picking {currentNode} randomly")
+                    decisionCount += 1
+                    decisionLog[currentJunctionName] += 1
+            else:  # currentNode is 'left' or 'right', i.e. we have no choice
+                if currentJunctionName in dCountLog.keys():
+                    if decisionCount == dCountLog[currentJunctionName]:
+                        # we haven't made any other decisions since we were last here
+                        print('we got stuck')
+                        stuck = True
+                        keepLooking = False
+                        continue
+                    else:
+                        # store the current decision count in the dCountLog
+                        dCountLog[currentJunctionName] = decisionCount
+                else:
+                    dCountLog[currentJunctionName] = decisionCount
+
+                # so we exit at the root of this junction
+                currentNode = 'root'
+
+            # phase 2 travel to the next junction
+            # find our starting point in the runs structure
+            print(f'Current position: {currentJunctionName}.{currentNode}')
+            print(f'Decision Log: {decisionLog}')
+            for r in self.runs:
+                if r.start_junction.name == currentJunctionName and r.start_port == currentNode:
+                    # travel to the end
+                    currentJunctionName = r.end_junction.name
+                    currentNode = r.end_port
+                    break
+                elif r.end_junction.name == currentJunctionName and r.end_port == currentNode:
+                    # travel to the start
+                    currentJunctionName = r.start_junction.name
+                    currentNode = r.start_port
+                    break
+            else:
+                raise ValueError('Could not find a node to travel to next')
+
+        if stuck:
+            return False
+        else:
+            return True
 
 
 class Run():
@@ -314,9 +388,9 @@ if __name__ == "__main__":
     plt.close('all')
 
     # gets stuck
-    config = {"A": ["j1.left", "j2.right"],
-              "B": ["j1.right", "j2.root"],
-              "C": ["j1.root", "j2.left"]}
+    # config = {"A": ["j1.left", "j2.right"],
+    #           "B": ["j1.right", "j2.root"],
+    #           "C": ["j1.root", "j2.left"]}
 
     # two reversing loops - works
     # config = {"A": ["j1.left", "j1.right"],
@@ -324,13 +398,41 @@ if __name__ == "__main__":
     #           "C": ["j2.right", "j2.left"]}
 
     # gets stuck [j3 root, j2 left, j2 root, j1 right, j1 root, j1 root, j3 left, j3 root]
-    config = {"A": ["j1.left", "j2.right"],
-              "B": ["j1.right", "j2.root"],
+    # config = {"A": ["j1.left", "j2.right"],
+    #           "B": ["j1.right", "j2.root"],
+    #           "C": ["j1.root", "j3.left"],
+    #           "D": ["j2.left", "j3.root"],
+    #           "E": ["j3.right", "j4.root"],
+    #           "F": ["j4.left", "j4.right"]}
+
+    # if travelling from j1.root to j3.right, can always alternate between
+    # two loops by choosing at j2 but can't ever enter j4
+    # possibly use the decisionLog to tell that if we have made
+    # more than 2 decisions at a junction, but can't decide
+    # at any other junctions, then we are stuck in a double loop?
+    # config = {"A": ["j1.left", "j4.root"],
+    #           "B": ["j3.root", "j2.root"],
+    #           "C": ["j1.root", "j3.left"],
+    #           "D": ["j2.left", "j1.right"],
+    #           "E": ["j3.right", "j2.right"],
+    #           "F": ["j4.left", "j4.right"]}
+
+    # another double loop
+    # config = {"A": ["j1.left", "j4.root"],
+    #           "B": ["j3.root", "j2.root"],
+    #           "C": ["j1.root", "j3.left"],
+    #           "D": ["j2.left", "j1.right"],
+    #           "E": ["j3.right", "j4.right"],
+    #           "F": ["j4.left", "j2.right"]}
+
+    # good one!
+    config = {"A": ["j2.left", "j4.root"],
+              "B": ["j3.root", "j2.root"],
               "C": ["j1.root", "j3.left"],
-              "D": ["j2.left", "j3.root"],
-              "E": ["j3.right", "j4.root"],
-              "F": ["j4.left", "j4.right"]}
+              "D": ["j1.left", "j1.right"],
+              "E": ["j3.right", "j4.right"],
+              "F": ["j4.left", "j2.right"]}
 
     T = Track(config)
     T.draw()
-    print(T.runs)
+    print(T.traverse())
