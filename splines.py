@@ -181,6 +181,8 @@ class Track():
         For 2, there are no choices, the endpoint is governed
         fully by the run structure
 
+        Returns True if we don't get stuck
+        Returns False if we get stuck
 
         """
         stuck = False
@@ -262,6 +264,24 @@ class Track():
         else:
             return True
 
+    def findLoops(self):
+        """Check the runs structure for loops"""
+        foundLoop = False
+        for j in self.junctions.keys():  # starting from a junction
+            next_junction = j
+            loop_length = 0
+            while True:
+                # find the linked run
+                for r in self.runs:
+                    if r.start_junction == next_junction and r.start_port == "root":
+                        next_junction = r.end_junction
+                    elif r.end_junction == next_junction and r.end_port == "root":
+                        next_junction = r.start_junction
+                loop_length += 1
+                if next_junction == j and loop_length < len(self.junctions):
+                    return True
+        return False
+
 
 class Run():
     # a Run has a start and end point and start and end gradients
@@ -341,7 +361,7 @@ class Junction():
     def update_position(self, new_pos):
         self.loc = new_pos
         if self.nub_artist:
-            dx, dy = [0, 0.5]@self.r
+            dx, dy = [0, 0.5] @ self.r
             self.nub_artist.set_data(new_pos[0] + dx, new_pos[1] + dy)
         self.get_points()
 
@@ -373,10 +393,10 @@ class Junction():
 
         # plot nub
         x, y = self.loc
-        dx, dy = [0, 0.5]@self.r
-        self.nub_artist = ax.plot(x+dx, y+dy, 'bo', markersize=10, picker=True)[0]
-        self.rot_artist = ax.plot(x+1.3*dx, y+1.3*dy, 'ko', markersize=7, picker=True)[0]
-        self.swap_artist = ax.plot(x+0.7*dx, y+0.7*dy, 'ms', markersize=7, picker=True)[0]
+        dx, dy = [0, 0.5] @ self.r
+        self.nub_artist = ax.plot(x + dx, y + dy, 'bo', markersize=10, picker=True)[0]
+        self.rot_artist = ax.plot(x + 1.3 * dx, y + 1.3 * dy, 'ko', markersize=7, picker=True)[0]
+        self.swap_artist = ax.plot(x + 0.7 * dx, y + 0.7 * dy, 'ms', markersize=7, picker=True)[0]
         ax.text(*self.loc, self.name)
 
     def __repr__(self):
@@ -393,9 +413,9 @@ if __name__ == "__main__":
     #           "C": ["j1.root", "j2.left"]}
 
     # two reversing loops - works
-    # config = {"A": ["j1.left", "j1.right"],
-    #           "B": ["j2.root", "j1.root"],
-    #           "C": ["j2.right", "j2.left"]}
+    config = {"A": ["j1.left", "j1.right"],
+              "B": ["j2.root", "j1.root"],
+              "C": ["j2.right", "j2.left"]}
 
     # gets stuck [j3 root, j2 left, j2 root, j1 right, j1 root, j1 root, j3 left, j3 root]
     # config = {"A": ["j1.left", "j2.right"],
@@ -426,13 +446,12 @@ if __name__ == "__main__":
     #           "F": ["j4.left", "j2.right"]}
 
     # good one!
-    config = {"A": ["j2.left", "j4.root"],
-              "B": ["j3.root", "j2.root"],
-              "C": ["j1.root", "j3.left"],
-              "D": ["j1.left", "j1.right"],
-              "E": ["j3.right", "j4.right"],
-              "F": ["j4.left", "j2.right"]}
+    # config = {"A": ["j2.left", "j4.root"],
+    #           "B": ["j3.root", "j2.root"],
+    #           "C": ["j1.root", "j3.left"],
+    #           "D": ["j1.left", "j1.right"],
+    #           "E": ["j3.right", "j4.right"],
+    #           "F": ["j4.left", "j2.right"]}
 
     T = Track(config)
-    T.draw()
-    print(T.traverse())
+    print(T.findLoops())
