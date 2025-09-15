@@ -168,7 +168,7 @@ class Track():
         for r in self.runs:
             r.rescale(scale, self.ax)
 
-    def traverse(self):
+    def traverse(self, log=False):
         """Traverse the track to see if we get stuck in a loop
 
         There are always two phases to each iteration:
@@ -196,7 +196,8 @@ class Track():
         currentNode = 'root'
 
         while keepLooking:
-            print(f'Current position: {currentJunctionName}.{currentNode}')
+            if log:
+                print(f'Current position: {currentJunctionName}.{currentNode}')
             # phase 1, go from one end of a junction to another
             if currentNode == 'root':
 
@@ -210,25 +211,29 @@ class Track():
                 # if we have not travelled to this junction yet, go left (0)
                 decisionValue = decisionLog.get(currentJunctionName, 0)
                 if decisionValue == 0:
-                    print(f"I haven't been at {currentJunctionName} before, going left")
+                    if log:
+                        print(f"I haven't been at {currentJunctionName} before, going left")
                     currentNode = 'left'  # travel to the left outlet
                     decisionCount += 1
                     decisionLog[currentJunctionName] = 1
                 elif decisionValue == 1:
-                    print(f"I've turned left at {currentJunctionName} before, going right")
+                    if log:
+                        print(f"I've turned left at {currentJunctionName} before, going right")
                     currentNode = 'right'  # travel to the right outlet
                     decisionCount += 1
                     decisionLog[currentJunctionName] = 2
                 else:
                     currentNode = random.choice(['left', 'right'])
-                    print(f"I've been to {currentJunctionName} twice before, picking {currentNode} randomly")
+                    if log:
+                        print(f"I've been to {currentJunctionName} twice before, picking {currentNode} randomly")
                     decisionCount += 1
                     decisionLog[currentJunctionName] += 1
             else:  # currentNode is 'left' or 'right', i.e. we have no choice
                 if currentJunctionName in dCountLog.keys():
                     if decisionCount == dCountLog[currentJunctionName]:
                         # we haven't made any other decisions since we were last here
-                        print('we got stuck')
+                        if log:
+                            print('we got stuck')
                         stuck = True
                         keepLooking = False
                         continue
@@ -243,8 +248,9 @@ class Track():
 
             # phase 2 travel to the next junction
             # find our starting point in the runs structure
-            print(f'Current position: {currentJunctionName}.{currentNode}')
-            print(f'Decision Log: {decisionLog}')
+            if log:
+                print(f'Current position: {currentJunctionName}.{currentNode}')
+                print(f'Decision Log: {decisionLog}')
             for r in self.runs:
                 if r.start_junction.name == currentJunctionName and r.start_port == currentNode:
                     # travel to the end
@@ -264,23 +270,78 @@ class Track():
         else:
             return True
 
-    def findLoops(self):
-        """Check the runs structure for loops"""
+    def findLoops(self, log=False):
+        """Check the runs structure for loops. 
+
+        Returns False if it's possible to get stuck in a loop'
+        Returns True if it's a good structure (same as self.traverse)
+
+
+        If it's ever possible to get back to the starting point without 
+        making any decisions, i.e. entering a left or right node and exiting 
+        a root node, then we have the first kind of problem (a loop)
+
+        To find a loop like this, we need to exit from all the junctions' 
+        root nodes. The current starting node is "j"
+        - If the root node we are exiting is linked to 
+          another root node, we have a decision, so we don't have a 1st 
+          order loop
+        - If the root node we are exiting is linked to a left or right node,
+          exit via that root node and follow the path around.
+              - If we get back to j without ever making a decision, this is a 
+              problem. 
+
+        It may be possible to have higher order loops, let's cover this later
+
+
+        """
+
+        # find all first order loops explicitly
         foundLoop = False
-        for j in self.junctions.keys():  # starting from a junction
+        for j in self.junctions.keys():  # starting from each junction's root node
+            if log:
+                print(f'Starting at junction {j}.root')
             next_junction = j
             loop_length = 0
             while True:
-                # find the linked run
+                # find where you end up when you exit this node
+                # do this by scanning the runs structure for j.root,
+                # and naming the end port
+                if log:
+                    print(f'Scanning the runs structure for {next_junction}.root')
                 for r in self.runs:
-                    if r.start_junction == next_junction and r.start_port == "root":
+                    skipFlag = False
+                    if log:
+                        print(f'current run is {r}')
+                    if r.start_junction.name == next_junction and r.start_port == "root":
+                        if log:
+                            print(f'found {next_junction}.root at the start')
                         next_junction = r.end_junction
-                    elif r.end_junction == next_junction and r.end_port == "root":
+                        # if by exiting this port we hit a root node, we
+                        # have a decision to make, so a journey leaving this
+                        # junction in this direction is not part of a loop
+                        if r.end_port == "root":
+                            skipFlag = True
+                        # whether we end up going into the left or right node
+                        # of the next junction is immaterial, both converge at
+                        # the root of the next junction.
+                    # repeat the equivalent logic but the other way around
+                    elif r.end_junction.name == next_junction and r.end_port == "root":
+                        if log:
+                            print(f'found {next_junction}.root at the end')
                         next_junction = r.start_junction
+                        if r.start_port == "root":
+                            skipFlag = True
+                print(f'next junction = {next_junction}')
                 loop_length += 1
-                if next_junction == j and loop_length < len(self.junctions):
-                    return True
-        return False
+                if skipFlag:
+                    break  # out of the while loop, because root to root was found
+                if next_junction == j and loop_length <= len(self.junctions):
+                    print('Found a loop')
+                    return False  # we have found a loop
+                if loop_length > len(self.junctions):
+                    break
+        return True
 
 
 class Run():
@@ -407,23 +468,35 @@ if __name__ == "__main__":
 
     plt.close('all')
 
-    # gets stuck
-    # config = {"A": ["j1.left", "j2.right"],
-    #           "B": ["j1.right", "j2.root"],
-    #           "C": ["j1.root", "j2.left"]}
+    print('Config 1 - gets stuck, should return False, bad layout')
+    config = {"A": ["j1.left", "j2.right"],
+              "B": ["j1.right", "j2.root"],
+              "C": ["j1.root", "j2.left"]}
+    T = Track(config)
+    T.draw()
+    print(T.findLoops(log=True))
+    # print(T.traverse())
 
-    # two reversing loops - works
+    print('Config 2 - two reversing loops, good layout, should return True')
     config = {"A": ["j1.left", "j1.right"],
               "B": ["j2.root", "j1.root"],
               "C": ["j2.right", "j2.left"]}
+    T = Track(config)
+    T.draw()
+    # print(T.findLoops())
+    # print(T.traverse())
 
     # gets stuck [j3 root, j2 left, j2 root, j1 right, j1 root, j1 root, j3 left, j3 root]
-    # config = {"A": ["j1.left", "j2.right"],
-    #           "B": ["j1.right", "j2.root"],
-    #           "C": ["j1.root", "j3.left"],
-    #           "D": ["j2.left", "j3.root"],
-    #           "E": ["j3.right", "j4.root"],
-    #           "F": ["j4.left", "j4.right"]}
+    config = {"A": ["j1.left", "j2.right"],
+              "B": ["j1.right", "j2.root"],
+              "C": ["j1.root", "j3.left"],
+              "D": ["j2.left", "j3.root"],
+              "E": ["j3.right", "j4.root"],
+              "F": ["j4.left", "j4.right"]}
+    T = Track(config)
+    T.draw()
+    # print(T.findLoops())
+    print(T.traverse())
 
     # if travelling from j1.root to j3.right, can always alternate between
     # two loops by choosing at j2 but can't ever enter j4
@@ -453,5 +526,14 @@ if __name__ == "__main__":
     #           "E": ["j3.right", "j4.right"],
     #           "F": ["j4.left", "j2.right"]}
 
+    # This is a counterexample to the root-to-root hypothesis.
+    # Although I can visit all edges, I can't do so in both directions
+    # so this is a bad layout
+    config = {'A': ["j1.left", "j2.left"],
+              'B': ["j1.right", "j2.right"],
+              'C': ["j1.root", "j2.root"]}
+
     T = Track(config)
-    print(T.findLoops())
+    # print(T.findLoops())
+    # print(T.traverse())
+    T.draw()
